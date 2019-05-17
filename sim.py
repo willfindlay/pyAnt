@@ -38,8 +38,8 @@ class Simulation:
             anty = np.random.randint(0, self.height)
             if(self.grid[antx][anty].walkable()):
                 break
-        self.queen = Queen(x=antx, y=anty, num_ants = ants)
-        self.grid[antx][anty] = self.queen
+        self.queen = Queen(sim = self, num_ants = ants)
+        self.grid[antx][anty].set_unit(self.queen)
 
     def generate_river(self, initial_direction=0, direction=0, riverx=0, rivery=0):
         repeat_count = 0
@@ -97,24 +97,18 @@ class Simulation:
             self.generate_river()
 
     def assign_colors(self):
-        try:
-            self.colors
-        # init colors if they do not exist
-        except:
-            self.colors = []
-            for x, col in enumerate(self.grid):
-                self.colors.append([])
-                for square in col:
-                    self.colors[x].append(square.color())
-            return
-        # intelligently modify colors
-        # TODO: do this using moves
+        self.colors = []
+        for x, col in enumerate(self.grid):
+            self.colors.append([])
+            for square in col:
+                self.colors[x].append(square.color())
 
     def draw(self):
         self.assign_colors()
         self.img  = self.ax.imshow(self.colors)
         stats = ""
         stats += f"Day: {self.day}\n"
+        stats += f"Seed: {np.random.get_state()[1][0]}\n"
         stats += f"Queen Age: {self.queen.age}\n"
         stats += f"Queen Food: {self.queen.hunger * 100}%\n"
         stats += f"Queen Water: {self.queen.thirst * 100}%\n"
@@ -132,8 +126,9 @@ class Simulation:
             self.day += 1
             self.queen.age += 1
             self.statechanged = True
+        self.queen.on_tick(self)
         for worker in self.queen.workers:
-            worker.on_tick()
+            worker.on_tick(self)
         if self.statechanged:
             self.fig.clf()
             self.fig.add_axes(self.ax)
@@ -141,88 +136,142 @@ class Simulation:
         self.statechanged = False
 
     def run(self):
-        plt.title("pyAnt")
+        plt.title(f"pyAnt")
         self.animation = FuncAnimation(self.fig, self.tick, interval=10)
         plt.show()
 
-class Square(ABC):
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-    @abstractmethod
-    def walkable(self):
-        return True
-
-    @abstractmethod
-    def color(self):
-        return (0,0,0,1)
-
-    @abstractmethod
-    def on_tick(self):
-        pass
-
 # Terrains {{{
 
-class Terrain(Square):
+class Square(ABC):
+    def __init__(self, x, y, obj=None):
+        self.x = x
+        self.y = y
+        self.unit = obj
+        self.m_color = (0, 0, 0, 1)
+        self.m_walkable = True
+
+    def walkable(self):
+        if self.unit is not None:
+            return self.unit.walkable()
+        return self.m_walkable
+
+    def color(self):
+        if self.unit is not None:
+            return self.unit.color()
+        return self.m_color
+
+    def set_unit(self, unit):
+        unit.square = self
+        unit.x = self.x
+        unit.y = self.y
+        self.unit = unit
+        return True
+
+    def moved_to(self, unit):
+        if self.walkable() is False:
+            return False
+        if self.unit is not None:
+            return self.unit.moved_to()
+        if unit.square is not None:
+            unit.square.unit = None
+        return self.set_unit(unit)
+
+class Dirt(Square):
     def __init__(self, x, y):
         super().__init__(x, y)
+        self.m_color = (0.6, 0.4, 0.2, 1)
+        self.m_walkable = True
 
-    def on_tick(self):
-        pass
-
-class Dirt(Terrain):
+class Water(Square):
     def __init__(self, x, y):
         super().__init__(x, y)
+        self.m_color = (0, 0.6, 1, 1)
+        self.m_walkable = False
+
+# }}}
+# Simulation Objects {{{
+
+class SimulationObject(ABC):
+    def __init__(self, sim):
+        self.square = None
+        self.x = 0
+        self.y = 0
+        self.sim = sim
+
+    @abstractmethod
+    def walkable(self):
+        return False
+
+    def adjacent_tiles(self):
+        tiles = []
+        if self.x + 1 <  self.sim.width:
+            tiles.append(self.sim.grid[self.x + 1][self.y])
+        if self.x - 1 >= 0:
+            tiles.append(self.sim.grid[self.x - 1][self.y])
+        if self.y + 1 <  self.sim.height:
+            tiles.append(self.sim.grid[self.x][self.y + 1])
+        if self.y - 1 >= 0:
+            tiles.append(self.sim.grid[self.x][self.y - 1])
+        return tiles
+
+    def color(self):
+        return self.m_color
+
+class Food(SimulationObject):
+    def __init__(self, sim):
+        super().__init__(sim)
 
     def walkable(self):
         return True
 
-    def color(self):
-        return (0.6, 0.4, 0.2, 1)
-
-class Water(Terrain):
-    def __init__(self, x, y):
-        super().__init__(x, y)
-
-    def walkable(self):
-        return False
-
-    def color(self):
-        return (0, 0.6, 1, 1)
-
-# }}}
-# Ants {{{
-
-class Ant(Square):
-    def __init__(self, x, y):
-        super().__init__(x, y)
+class Ant(SimulationObject):
+    def __init__(self, sim):
+        super().__init__(sim)
 
     def walkable(self):
         return False
 
     @abstractmethod
-    def move(self):
+    def on_tick(self, simulation):
         pass
+
+    def move_to(self, tile=None, x=None, y=None):
+        result = False
+        if tile is not None:
+            result = tile.moved_to(self)
+        else:
+            result = self.sim.grid[x][y].moved_to(self)
+        if result is True:
+            self.sim.statechanged = True
 
 class Worker(Ant):
-    def __init__(self, x, y):
-        super().__init__(x, y)
+    def __init__(self, sim):
+        super().__init__(sim)
+        self.m_color = (0, 0.8, 0, 1)
+        self.job = "rest"
 
-    def color(self):
-        return (0, 0.8, 0, 1)
+    def on_tick(self, simulation):
+        if self.job is "rest":
+            pass
+        elif self.job is "search":
+            tiles = []
+            for tile in self.adjacent_tiles():
+                if tile.walkable():
+                    tiles.append(tile)
+            choice = np.random.randint(0,len(tiles))
+            self.walk(tiles[choice])
 
-    def on_tick(self):
-        # TODO: specify worker AI
+    def walk(self, tile):
+        return self.move_to(tile)
+
+    def leave_pheromones(self, pheromone):
         pass
 
-    def move(self):
-        # TODO: add move logic
-        pass
 
 class Queen(Ant):
-    def __init__(self, x, y, num_ants):
-        super().__init__(x, y)
+    def __init__(self, sim, num_ants):
+        super().__init__(sim)
+        self.m_color = (1, 0, 1, 1)
         self.age = 0
         self.hunger = 1
         self.thirst = 1
@@ -233,17 +282,11 @@ class Queen(Ant):
         self.workers = []
 
         for _ in range(num_ants):
-            self.workers.append(Worker(x,y))
+            self.workers.append(Worker(self.sim))
 
-    def color(self):
-        return (1, 0, 1, 1)
-
-    def on_tick(self):
+    def on_tick(self, simulation):
         # TODO: specify queen ai
-        pass
-
-    def move(self):
-        pass
+        self.dispatch_worker("search")
 
     def num_workers(self):
         return len(self.workers)
@@ -253,5 +296,19 @@ class Queen(Ant):
 
     def num_larvae(self):
         return len(self.larvae)
+
+    def dispatch_worker(self, job):
+        # find an empty tile to poop out a worker
+        the_tile = None
+        for tile in self.adjacent_tiles():
+            if tile.unit is None:
+                the_tile = tile
+        if the_tile is None:
+            return
+        for worker in self.workers:
+            if worker.job is "rest":
+                worker.move_to(the_tile)
+                worker.job = job
+                return
 
 # }}}
