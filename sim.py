@@ -6,7 +6,7 @@ from matplotlib.animation import FuncAnimation
 import numpy as np
 
 class Simulation:
-    def __init__(self, seed=None, ants=5, x=100, y=100):
+    def __init__(self, seed=None, ants=5, num_rivers=5, x=100, y=100):
         # seed random number generator
         np.random.seed(seed)
 
@@ -19,6 +19,15 @@ class Simulation:
         # maintain a queue of moves to be made
         self.move_queue = np.array([])
 
+        self.generate_map(ants, num_rivers)
+
+        self.draw()
+
+    def generate_map(self, ants, num_rivers):
+        self.generate_rivers(num_rivers)
+        self.generate_ants(ants)
+
+    def generate_ants(self, ants):
         # place queen
         while True:
             antx = np.random.randint(0, self.width)
@@ -37,7 +46,51 @@ class Simulation:
             ant = Worker(x=antx, y=anty)
             self.grid[antx][anty] = ant
 
-        self.draw()
+    def generate_river(self, direction=0, riverx=0, rivery=0, length=0):
+        # 1 = up
+        # 2 = left
+        # 3 = down
+        # 4 = right
+        if direction is 0:
+            riverx = np.random.randint(0, self.width)
+            rivery = np.random.randint(0, self.height)
+        elif direction is 1:
+            rivery += 1
+        elif direction is 2:
+            riverx += 1
+        elif direction is 3:
+            rivery -= 1
+        elif direction is 4:
+            riverx -= 1
+        # check if the tile placement would be invalid
+        # that's probably a decent stopping point
+        if riverx >= self.width or riverx < 0 or rivery >= self.height or rivery < 0:
+            return
+        if isinstance(self.grid[riverx][rivery], Water):
+            return
+        self.grid[riverx][rivery] = Water(riverx,rivery)
+        # if it's the first tile, pick any direction randomly
+        if direction is 0:
+            direction = np.random.randint(1,5)
+        else:
+            # otherwise we want to heavily favor going straight and never go back
+            direction_decision = np.random.randint(0,1000)
+            if direction_decision < 900:
+                pass
+            elif direction_decision < 950:
+                direction = (direction + 2) % 4 + 1
+            else:
+                direction = (direction + 4) % 4 + 1
+        # randomly cut river short
+        # this is an inverse probability as a function of map size
+        cutoff = np.random.randint(0, (self.width + self.height) / 2 - length)
+        if cutoff < 1:
+            return
+        self.generate_river(direction, riverx, rivery, length + 1)
+
+    def generate_rivers(self, num_rivers):
+        for _ in range(num_rivers):
+            self.generate_river()
 
     def assign_colors(self):
         try:
