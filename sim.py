@@ -12,38 +12,32 @@ class Simulation:
 
         self.width  = x
         self.height = y
-
-        # create (x by y) fig
         self.fig, self.ax = plt.subplots()
-        #self.ax.set_xlim(0, x), self.ax.set_xticks([])
-        #self.ax.set_ylim(0, y), self.ax.set_yticks([])
 
         # initialize grid
-        self.grid = np.array([[None for _ in range(x)] for _ in range(y)])
-        # maintain a stack of changes in simulation state
-        self.state_changes = np.array([])
+        self.grid = np.array([[Dirt(x, y) for y in range(self.height)] for x in range(self.width)])
+        # maintain a queue of moves to be made
+        self.move_queue = np.array([])
 
-        # spawn random ants
-        # TODO set coordinates of queen randomly
-        # TODO set coordinates of workers randomly
-        self.ants = []
-        for i in range(ants):
-            antx = np.random.uniform(0, x)
-            anty = np.random.uniform(0, y)
+        # place queen
+        while True:
+            antx = np.random.randint(0, self.width)
+            anty = np.random.randint(0, self.height)
+            if(isinstance(self.grid[antx][anty], Dirt)):
+                break
+        ant = Queen(x=antx, y=anty)
+        self.grid[antx][anty] = ant
+        # place initial workers
+        for _ in range(ants):
+            while True:
+                antx = np.random.randint(0, self.width)
+                anty = np.random.randint(0, self.height)
+                if(isinstance(self.grid[antx][anty], Dirt)):
+                    break
             ant = Worker(x=antx, y=anty)
-            self.ants.append(ant)
+            self.grid[antx][anty] = ant
 
         self.draw()
-
-    def color_by_obj(self, obj):
-        # colors will be of form (r,g,b,a)
-        # where r, g, b, and a are all in range [0,1]
-        if type(obj) is Queen:
-            return (1, 0, 1, 1)
-        if type(obj) is Worker:
-            return (0, 0.8, 0, 1)
-        # dirt tile
-        return (0.6, 0.4, 0.2, 1)
 
     def assign_colors(self):
         try:
@@ -51,44 +45,95 @@ class Simulation:
         # init colors if they do not exist
         except:
             self.colors = []
-            for i, row in enumerate(self.grid):
+            for x, col in enumerate(self.grid):
                 self.colors.append([])
-                for square in row:
-                    self.colors[i].append(self.color_by_obj(square))
+                for square in col:
+                    self.colors[x].append(square.color())
             return
         # intelligently modify colors
-        for change in self.state_changes:
-            x, y = change
+        # TODO: do this using moves
 
     def draw(self):
         self.assign_colors()
         self.img = self.ax.imshow(self.colors)
 
     def tick(self, frame_number):
-        for ant in self.ants:
-            ant.on_tick()
+        for col in self.grid:
+            for square in col:
+                if(isinstance(square, Ant)):
+                    square.on_tick()
 
     def run(self):
         plt.title("pyAnt")
         self.animation = FuncAnimation(self.fig, self.tick, interval=10)
         plt.show()
 
-class Ant(ABC):
-    def __init__(self, x=1, y=1):
+class Square(ABC):
+    def __init__(self, x, y):
         self.x = x
         self.y = y
 
     @abstractmethod
+    def walkable(self):
+        return True
+
+    @abstractmethod
+    def color(self):
+        return (0,0,0,1)
+
+    @abstractmethod
     def on_tick(self):
         pass
+
+# Terrains {{{
+
+class Terrain(Square):
+    def __init__(self, x, y):
+        super().__init__(x, y)
+
+    def on_tick(self):
+        pass
+
+class Dirt(Terrain):
+    def __init__(self, x, y):
+        super().__init__(x, y)
+
+    def walkable(self):
+        return True
+
+    def color(self):
+        return (0.6, 0.4, 0.2, 1)
+
+class Water(Terrain):
+    def __init__(self, x, y):
+        super().__init__(x, y)
+
+    def walkable(self):
+        return False
+
+    def color(self):
+        return (0, 0.6, 1, 1)
+
+# }}}
+# Ants {{{
+
+class Ant(Square):
+    def __init__(self, x, y):
+        super().__init__(x, y)
+
+    def walkable(self):
+        return False
 
     @abstractmethod
     def move(self):
         pass
 
 class Worker(Ant):
-    def __init__(self, x=1, y=1):
+    def __init__(self, x, y):
         super().__init__(x, y)
+
+    def color(self):
+        return (0, 0.8, 0, 1)
 
     def on_tick(self):
         # TODO: specify worker AI
@@ -99,8 +144,11 @@ class Worker(Ant):
         pass
 
 class Queen(Ant):
-    def __init__(self, x=1, y=1):
+    def __init__(self, x, y):
         super().__init__(x, y)
+
+    def color(self):
+        return (1, 0, 1, 1)
 
     def on_tick(self):
         # TODO: specify queen ai
@@ -108,3 +156,5 @@ class Queen(Ant):
 
     def move(self):
         pass
+
+# }}}
